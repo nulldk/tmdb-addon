@@ -3,11 +3,11 @@ name: Sincronización Automática
 on:
   schedule:
     - cron: '0 0 * * *' # Ejecutar a medianoche
-  workflow_dispatch: # Botón manual para probar
+  workflow_dispatch: # Botón manual
 
 permissions:
   contents: write # Permiso para hacer git push
-  issues: write   # Permiso para crear la alerta (Issue)
+  issues: write   # Permiso para crear la alerta
 
 jobs:
   sync:
@@ -35,17 +35,19 @@ jobs:
           git remote add upstream $UPSTREAM_URL
           git fetch upstream
           git checkout $BRANCH
+
+          # AQUI ESTA EL CAMBIO PRINCIPAL: --allow-unrelated-histories
+          # Esto fuerza la unión aunque los repositorios parezcan distintos
+          git merge upstream/$BRANCH --allow-unrelated-histories
           
-          # Si esto falla, el script salta al paso de "Alerta"
-          git merge upstream/$BRANCH
           git push origin $BRANCH
 
       - name: 🚨 ALERTA - Crear Issue por Fallo
-        if: failure() # Solo se ejecuta si lo de arriba falla
+        if: failure() # Se ejecuta si el merge falla (por conflictos de archivos)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # He quitado la linea --assignee para evitar el error de usuario no encontrado
           gh issue create \
             --title "⚠️ Fallo de Sincronización: Conflicto Detectado" \
-            --body "La sincronización automática falló. Hay conflictos que debes resolver manualmente. Revisa el repositorio." \
-            --assignee "${{ github.actor }}"
+            --body "La sincronización automática ha fallado. Hay conflictos de código que debes resolver manualmente en tu PC. Revisa https://github.com/${{ github.repository }}"
