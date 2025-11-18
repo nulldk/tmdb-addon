@@ -215,7 +215,7 @@ const fetchTvData = async (tmdbId, language) => {
     append_to_response: "credits,external_ids"
   });
 
-  const videos = await fetchVideosWithFallback(tmdbId, language);
+  const videos = await fetchTvVideosWithFallback(tmdbId, language);
   info.videos = { results: videos };
 
   return info;
