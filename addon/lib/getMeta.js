@@ -72,36 +72,6 @@ const addAgeRatingToGenres = (ageRating, genres, showAgeRatingInGenres = true) =
   return [ageRating, ...genres];
 };
 
-async function fetchVideosWithFallback(id, language) {
-  try {
-    const primary = await moviedb.movieVideos({ id, language });
-    if (primary?.results?.length) {
-      return primary.results;
-    }
-
-    const fallback = await moviedb.movieVideos({ id, language: "en-US" });
-    return fallback?.results ?? [];
-    
-  } catch (err) {
-    return [];
-  }
-}
-
-async function fetchTvVideosWithFallback(id, language) {
-  try {
-    const primary = await moviedb.tvInfo({ id, language });
-    if (primary?.results?.length) {
-      return primary.results;
-    }
-
-    const fallback = await moviedb.tvInfo({ id, language: "en-US" });
-    return fallback?.results ?? [];
-    
-  } catch (err) {
-    return [];
-  }
-}
-
 const fetchCollectionData = async (collTMDBId, language, tmdbId) => {
   return await moviedb.collectionInfo({
     id: collTMDBId,
@@ -120,13 +90,18 @@ const fetchMovieData = async (tmdbId, language) => {
   const info = await moviedb.movieInfo({
     id: tmdbId,
     language,
-    append_to_response: "credits,external_ids"
+    append_to_response: "videos,credits,external_ids"
   });
 
-  const videos = await fetchVideosWithFallback(tmdbId, language);
-  info.videos = { results: videos };
+  if (!info.videos?.results?.length) {
+    try {
+      const fallback = await moviedb.movieVideos({ id: tmdbId, language: "en-US" });
+      info.videos = { results: fallback.results || [] };
+    } catch (err) {}
+  }
 
-  return info;};
+  return info;
+};
 
 const buildMovieResponse = async (res, type, language, tmdbId, rpdbkey, config = {}) => {
   const enableAgeRating = config.enableAgeRating === true || config.enableAgeRating === "true";
@@ -212,11 +187,19 @@ const fetchTvData = async (tmdbId, language) => {
   const info = await moviedb.tvInfo({
     id: tmdbId,
     language,
-    append_to_response: "credits,external_ids"
+    append_to_response: "videos,credits,external_ids"
   });
 
-  const videos = await fetchTvVideosWithFallback(tmdbId, language);
-  info.videos = { results: videos };
+  if (!info.videos?.results?.length) {
+    try {
+      const fallback = await moviedb.tvInfo({ 
+        id: tmdbId, 
+        language: "en-US",
+        append_to_response: "videos" 
+      });
+      info.videos = fallback.videos || { results: [] };
+    } catch (err) {}
+  }
 
   return info;
 };
