@@ -2,12 +2,12 @@ name: Sincronización Automática
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Ejecutar a medianoche
-  workflow_dispatch: # Botón manual
+    - cron: '0 0 * * *' # Ejecutar cada día a medianoche
+  workflow_dispatch: # Botón para probar manualmente
 
 permissions:
-  contents: write # Permiso para hacer git push
-  issues: write   # Permiso para crear la alerta
+  contents: write
+  issues: write
 
 jobs:
   sync:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Vital para ver toda la historia
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configurar Git
@@ -24,7 +24,7 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-      - name: Intentar Merge con Upstream
+      - name: Fusionar Upstream
         id: merge
         run: |
           # --- CONFIGURACIÓN ---
@@ -32,22 +32,25 @@ jobs:
           BRANCH="main"
           # ---------------------
 
+          echo "Añadiendo remoto upstream..."
           git remote add upstream $UPSTREAM_URL
           git fetch upstream
+
+          echo "Cambiando a la rama $BRANCH..."
           git checkout $BRANCH
 
-          # AQUI ESTA EL CAMBIO PRINCIPAL: --allow-unrelated-histories
-          # Esto fuerza la unión aunque los repositorios parezcan distintos
+          echo "Intentando merge..."
+          # Esta bandera es la clave para que no falle aunque los historiales sean raros
           git merge upstream/$BRANCH --allow-unrelated-histories
           
+          echo "Subiendo cambios..."
           git push origin $BRANCH
 
-      - name: 🚨 ALERTA - Crear Issue por Fallo
-        if: failure() # Se ejecuta si el merge falla (por conflictos de archivos)
+      - name: 🚨 ALERTA - Crear Issue si falla
+        if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # He quitado la linea --assignee para evitar el error de usuario no encontrado
           gh issue create \
-            --title "⚠️ Fallo de Sincronización: Conflicto Detectado" \
-            --body "La sincronización automática ha fallado. Hay conflictos de código que debes resolver manualmente en tu PC. Revisa https://github.com/${{ github.repository }}"
+            --title "⚠️ Fallo de Sincronización Automática" \
+            --body "La sincronización ha fallado. Probablemente hay nuevos conflictos de código. Revisa: https://github.com/${{ github.repository }}/actions"
