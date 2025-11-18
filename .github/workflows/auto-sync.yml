@@ -45,12 +45,3 @@ jobs:
           
           echo "Subiendo cambios..."
           git push origin $BRANCH
-
-      - name: 🚨 ALERTA - Crear Issue si falla
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh issue create \
-            --title "⚠️ Fallo de Sincronización Automática" \
-            --body "La sincronización ha fallado. Probablemente hay nuevos conflictos de código. Revisa: https://github.com/${{ github.repository }}/actions"
