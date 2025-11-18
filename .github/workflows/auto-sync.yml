@@ -1,0 +1,51 @@
+name: Sincronización Automática
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Ejecutar a medianoche
+  workflow_dispatch: # Botón manual para probar
+
+permissions:
+  contents: write # Permiso para hacer git push
+  issues: write   # Permiso para crear la alerta (Issue)
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Intentar Merge con Upstream
+        id: merge
+        run: |
+          # --- CONFIGURACIÓN ---
+          UPSTREAM_URL="https://github.com/mrcanelas/tmdb-addon.git"
+          BRANCH="main"
+          # ---------------------
+
+          git remote add upstream $UPSTREAM_URL
+          git fetch upstream
+          git checkout $BRANCH
+          
+          # Si esto falla, el script salta al paso de "Alerta"
+          git merge upstream/$BRANCH
+          git push origin $BRANCH
+
+      - name: 🚨 ALERTA - Crear Issue por Fallo
+        if: failure() # Solo se ejecuta si lo de arriba falla
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "⚠️ Fallo de Sincronización: Conflicto Detectado" \
+            --body "La sincronización automática falló. Hay conflictos que debes resolver manualmente. Revisa el repositorio." \
+            --assignee "${{ github.actor }}"
