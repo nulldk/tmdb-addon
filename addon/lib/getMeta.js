@@ -87,6 +87,21 @@ async function fetchVideosWithFallback(id, language) {
   }
 }
 
+async function fetchTvVideosWithFallback(id, language) {
+  try {
+    const primary = await moviedb.tvInfo({ id, language });
+    if (primary?.results?.length) {
+      return primary.results;
+    }
+
+    const fallback = await moviedb.tvInfo({ id, language: "en-US" });
+    return fallback?.results ?? [];
+    
+  } catch (err) {
+    return [];
+  }
+}
+
 const fetchCollectionData = async (collTMDBId, language, tmdbId) => {
   return await moviedb.collectionInfo({
     id: collTMDBId,
