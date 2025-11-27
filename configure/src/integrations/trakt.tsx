@@ -19,7 +19,8 @@ export default function Trakt() {
         throw new Error('Código de autorização inválido');
       }
       
-      const response = await fetch(`/trakt_access_token?code=${encodeURIComponent(code)}`);
+      const uuid = crypto.randomUUID();
+      const response = await fetch(`/trakt_access_token?code=${encodeURIComponent(code)}&cache_buster=${uuid}`);
       
       if (!response.ok) {
         let errorMessage = 'Falha ao obter token de acesso';
@@ -50,8 +51,8 @@ export default function Trakt() {
         setTraktRefreshToken(tokenData.refresh_token);
       }
 
-      // Adiciona os catálogos do Trakt
-      const traktCatalogs = [
+      // Adiciona os catálogos do Trakt se ainda não existirem
+      const traktCatalogsToAdd = [
         {
           id: "trakt.watchlist",
           type: "movie",
@@ -84,10 +85,22 @@ export default function Trakt() {
 
       setCatalogs((prev) => {
         const existingIds = new Set(prev.map((c) => `${c.id}-${c.type}`));
-        const newCatalogs = traktCatalogs.filter(
+        const newCatalogs = traktCatalogsToAdd.filter(
           (c) => !existingIds.has(`${c.id}-${c.type}`)
         );
-        return [...prev, ...newCatalogs];
+        
+        // Se já existem, apenas atualiza o enabled/showInHome para true
+        const updatedCatalogs = prev.map((c) => {
+          const traktCatalog = traktCatalogsToAdd.find(
+            (tc) => tc.id === c.id && tc.type === c.type
+          );
+          if (traktCatalog) {
+            return { ...c, enabled: true, showInHome: true };
+          }
+          return c;
+        });
+        
+        return [...updatedCatalogs, ...newCatalogs];
       });
 
       toast({
@@ -118,7 +131,8 @@ export default function Trakt() {
     setError("");
 
     try {
-      const response = await fetch(`/trakt_auth_url`);
+      const uuid = crypto.randomUUID();
+      const response = await fetch(`/trakt_auth_url?cache_buster=${uuid}`);
       
       if (!response.ok) {
         let errorMessage = 'Falha ao obter URL de autenticação';

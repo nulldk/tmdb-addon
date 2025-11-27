@@ -10,7 +10,7 @@ const { getMeta } = require("./lib/getMeta");
 const { getTmdb } = require("./lib/getTmdb");
 const { cacheWrapMeta } = require("./lib/getCache");
 const { getTrending } = require("./lib/getTrending");
-const { parseConfig, getRpdbPoster, checkIfExists } = require("./utils/parseProps");
+const { parseConfig, getRpdbPoster } = require("./utils/parseProps");
 const { getRequestToken, getSessionId } = require("./lib/getSession");
 const { getFavorites, getWatchList } = require("./lib/getPersonalLists");
 const { getTraktAuthUrl, getTraktAccessToken } = require("./lib/getTraktSession");
@@ -127,7 +127,7 @@ addon.get("/trakt_auth_url", async function (req, res) {
     }
     
     const host = req.get('host') || req.headers.host || req.headers['x-forwarded-host'];
-    const requestHost = `${protocol}://${host}`;
+    const requestHost = process.env.HOST_NAME || `${protocol}://${host}`;
     
     const { authUrl, state } = await getTraktAuthUrl(requestHost);
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -163,7 +163,7 @@ addon.get("/trakt_access_token", async function (req, res) {
     }
     
     const host = req.get('host') || req.headers.host || req.headers['x-forwarded-host'];
-    const requestHost = `${protocol}://${host}`;
+    const requestHost = process.env.HOST_NAME || `${protocol}://${host}`;
     const redirectUri = `${requestHost}/configure`;
     
     const response = await getTraktAccessToken(code, redirectUri);
@@ -213,8 +213,9 @@ addon.get("/:catalogChoices?/catalog/:type/:id/:extra?.json", async function (re
   const { catalogChoices, type, id, extra } = req.params;
   const config = parseConfig(catalogChoices) || {};
   const language = req.query.language || config.language || DEFAULT_LANGUAGE;
-  const rpdbkey = config.rpdbkey
-  const sessionId = config.sessionId
+  const rpdbkey = config.rpdbkey;
+  const rpdbMediaTypes = config.rpdbMediaTypes || null;
+  const sessionId = config.sessionId;
   const { genre, skip, search } = extra
     ? Object.fromEntries(
       new URLSearchParams(req.url.split("/").pop().split("?")[0].slice(0, -5)).entries()
@@ -270,8 +271,10 @@ addon.get("/:catalogChoices?/catalog/:type/:id/:extra?.json", async function (re
     try {
       metas = JSON.parse(JSON.stringify(metas));
       metas.metas = await Promise.all(metas.metas.map(async (el) => {
-        const rpdbImage = getRpdbPoster(type, el.id.replace('tmdb:', ''), language, rpdbkey)
-        el.poster = await checkIfExists(rpdbImage) ? rpdbImage : el.poster;
+        const posterUrl = getRpdbPoster(type, el.id.replace('tmdb:', ''), language, rpdbkey, rpdbMediaTypes);
+        if (posterUrl) {
+          el.poster = posterUrl;
+        }
         return el;
       }))
     } catch (e) { }
@@ -284,18 +287,13 @@ addon.get("/:catalogChoices?/meta/:type/:id.json", async function (req, res) {
   const config = parseConfig(catalogChoices) || {};
   const tmdbId = id.split(":")[1];
   const language = config.language || DEFAULT_LANGUAGE;
-  const rpdbkey = config.rpdbkey;
   const imdbId = req.params.id.split(":")[0];
+  delete config.catalogs
+  delete config.streaming
 
   if (req.params.id.includes("tmdb:")) {
     const resp = await cacheWrapMeta(`${language}:${type}:${tmdbId}`, async () => {
-      return await getMeta(type, language, tmdbId, rpdbkey, {
-        ...config,
-        hideEpisodeThumbnails: config.hideEpisodeThumbnails === "true",
-        enableAgeRating: config.enableAgeRating === "true",
-        showAgeRatingInGenres: config.showAgeRatingInGenres !== "false",
-        showAgeRatingWithImdbRating: config.showAgeRatingWithImdbRating === "true"
-      });
+      return await getMeta(type, language, tmdbId, config);
     });
     const cacheOpts = {
       staleRevalidate: 20 * 24 * 60 * 60,
@@ -313,13 +311,7 @@ addon.get("/:catalogChoices?/meta/:type/:id.json", async function (req, res) {
     const tmdbId = await getTmdb(type, imdbId);
     if (tmdbId) {
       const resp = await cacheWrapMeta(`${language}:${type}:${tmdbId}`, async () => {
-        return await getMeta(type, language, tmdbId, rpdbkey, {
-          ...config,
-          hideEpisodeThumbnails: config.hideEpisodeThumbnails === "true",
-          enableAgeRating: config.enableAgeRating === "true",
-          showAgeRatingInGenres: config.showAgeRatingInGenres !== "false",
-          showAgeRatingWithImdbRating: config.showAgeRatingWithImdbRating === "true"
-        });
+        return await getMeta(type, language, tmdbId, config);
       });
       const cacheOpts = {
         staleRevalidate: 20 * 24 * 60 * 60,
