@@ -282,18 +282,6 @@ addon.get("/:catalogChoices?/catalog/:type/:id/:extra?.json", async function (re
     staleRevalidate: 7 * 24 * 60 * 60,
     staleError: 14 * 24 * 60 * 60,
   };
-  if (rpdbkey) {
-    try {
-      metas = JSON.parse(JSON.stringify(metas));
-      metas.metas = await Promise.all(metas.metas.map(async (el) => {
-        const posterUrl = getRpdbPoster(type, el.id.replace('tmdb:', ''), language, rpdbkey, rpdbMediaTypes);
-        if (posterUrl) {
-          el.poster = posterUrl;
-        }
-        return el;
-      }))
-    } catch (e) { }
-  }
   respond(res, metas, cacheOpts);
 });
 
