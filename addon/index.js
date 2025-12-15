@@ -289,7 +289,7 @@ addon.get("/:catalogChoices?/meta/:type/:id.json", async function (req, res) {
   const { catalogChoices, type, id } = req.params;
   const config = parseConfig(catalogChoices) || {};
   const tmdbId = id.split(":")[1];
-  const language = config.language || DEFAULT_LANGUAGE;
+  const language = req.query.language || config.language || DEFAULT_LANGUAGE;
   const imdbId = req.params.id.split(":")[0];
   delete config.catalogs
   delete config.streaming
