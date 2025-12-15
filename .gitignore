@@ -105,3 +105,9 @@ dist
 
 # VS-Code folder
 .vscode
+
+#Vercel
+now.json
+
+#Beamup
+beamup.json
