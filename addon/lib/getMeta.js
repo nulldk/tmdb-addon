@@ -239,6 +239,8 @@ const buildMovieResponse = async (res, type, language, tmdbId, config = {}) => {
             hasScheduledVideos: false
         },
         logo: processLogo(logo),
+        budget: res.budget || null,
+        revenue: res.revenue || null,
         app_extras: {
             cast: Utils.parseCast(res.credits, castCount)
         }
