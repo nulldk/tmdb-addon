@@ -17,9 +17,11 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [rpdbkey, setRpdbkey] = useState("");
   const [rpdbMediaTypes, setRpdbMediaTypes] = useState({ poster: true, logo: false, backdrop: false });
   const [geminikey, setGeminiKey] = useState("");
+  const [groqkey, setGroqKey] = useState("");
   const [mdblistkey, setMdblistkey] = useState("");
   const [traktAccessToken, setTraktAccessToken] = useState("");
   const [traktRefreshToken, setTraktRefreshToken] = useState("");
+  const [tmdbApiKey, setTmdbApiKey] = useState("");
   const [includeAdult, setIncludeAdult] = useState(false);
   const [provideImdbId, setProvideImdbId] = useState(false);
   const [returnImdbId, setReturnImdbId] = useState(false);
@@ -36,6 +38,8 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
   const [showAgeRatingInGenres, setShowAgeRatingInGenres] = useState(true);
   const [enableAgeRating, setEnableAgeRating] = useState(false);
   const [showAgeRatingWithImdbRating, setShowAgeRatingWithImdbRating] = useState(false);
+  const [strictRegionFilter, setStrictRegionFilter] = useState(false);
+  const [digitalReleaseFilter, setDigitalReleaseFilter] = useState(false);
 
   const CONFIG_STORAGE_KEY = 'tmdb-addon-config';
 
@@ -45,9 +49,11 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
         rpdbkey,
         rpdbMediaTypes,
         geminikey,
+        groqkey,
         mdblistkey,
         traktAccessToken,
         traktRefreshToken,
+        tmdbApiKey,
         includeAdult,
         provideImdbId,
         returnImdbId,
@@ -64,6 +70,8 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
         showAgeRatingInGenres,
         enableAgeRating,
         showAgeRatingWithImdbRating,
+        strictRegionFilter,
+        digitalReleaseFilter,
       };
       localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
     } catch (error) {
@@ -93,8 +101,10 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     }
     if (config.mdblistkey !== undefined) setMdblistkey(config.mdblistkey);
     if (config.geminikey !== undefined) setGeminiKey(config.geminikey);
+    if (config.groqkey !== undefined) setGroqKey(config.groqkey);
     if (config.traktAccessToken !== undefined) setTraktAccessToken(config.traktAccessToken);
     if (config.traktRefreshToken !== undefined) setTraktRefreshToken(config.traktRefreshToken);
+    if (config.tmdbApiKey !== undefined) setTmdbApiKey(config.tmdbApiKey);
     if (config.provideImdbId !== undefined) setProvideImdbId(config.provideImdbId === "true" || config.provideImdbId === true);
     if (config.returnImdbId !== undefined) setReturnImdbId(config.returnImdbId === "true" || config.returnImdbId === true);
     if (config.tmdbPrefix !== undefined) setTmdbPrefix(config.tmdbPrefix === "true" || config.tmdbPrefix === true);
@@ -108,6 +118,8 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     if (config.enableAgeRating !== undefined) setEnableAgeRating(config.enableAgeRating === "true" || config.enableAgeRating === true);
     if (config.showAgeRatingInGenres !== undefined) setShowAgeRatingInGenres(config.showAgeRatingInGenres === "true" || config.showAgeRatingInGenres === true);
     if (config.showAgeRatingWithImdbRating !== undefined) setShowAgeRatingWithImdbRating(config.showAgeRatingWithImdbRating === "true" || config.showAgeRatingWithImdbRating === true);
+    if (config.strictRegionFilter !== undefined) setStrictRegionFilter(config.strictRegionFilter === "true" || config.strictRegionFilter === true);
+    if (config.digitalReleaseFilter !== undefined) setDigitalReleaseFilter(config.digitalReleaseFilter === "true" || config.digitalReleaseFilter === true);
     if (config.searchEnabled !== undefined) setSearchEnabled(config.searchEnabled === "true" || config.searchEnabled === true);
 
     if (config.catalogs) {
@@ -149,7 +161,7 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
       // Verifica se há query params de autenticação (TMDB ou Trakt)
       const urlParams = new URLSearchParams(window.location.search);
       const hasAuthParams = urlParams.has('request_token') || urlParams.has('code');
-      
+
       // Se há params de autenticação, tenta restaurar do localStorage primeiro
       if (hasAuthParams) {
         const storedConfig = loadConfigFromStorage();
@@ -187,9 +199,11 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     rpdbkey,
     rpdbMediaTypes,
     geminikey,
+    groqkey,
     mdblistkey,
     traktAccessToken,
     traktRefreshToken,
+    tmdbApiKey,
     includeAdult,
     provideImdbId,
     returnImdbId,
@@ -206,12 +220,16 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     showAgeRatingInGenres,
     enableAgeRating,
     showAgeRatingWithImdbRating,
+    strictRegionFilter,
+    digitalReleaseFilter,
     setRpdbkey,
     setRpdbMediaTypes,
     setGeminiKey,
+    setGroqKey,
     setMdblistkey,
     setTraktAccessToken,
     setTraktRefreshToken,
+    setTmdbApiKey,
     setIncludeAdult,
     setProvideImdbId,
     setReturnImdbId,
@@ -228,6 +246,8 @@ export function ConfigProvider({ children }: { children: React.ReactNode }) {
     setShowAgeRatingInGenres,
     setEnableAgeRating,
     setShowAgeRatingWithImdbRating,
+    setStrictRegionFilter,
+    setDigitalReleaseFilter,
     loadConfigFromUrl,
     saveConfigToStorage
   };

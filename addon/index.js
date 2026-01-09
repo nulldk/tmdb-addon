@@ -17,11 +17,25 @@ const { getTraktAuthUrl, getTraktAccessToken } = require("./lib/getTraktSession"
 const { getTraktWatchlist, getTraktRecommendations } = require("./lib/getTraktLists");
 const { blurImage } = require('./utils/imageProcessor');
 const { testProxy, PROXY_CONFIG } = require('./utils/httpClient');
+const { trackUser, getUserCount, getAggregatedUserCount, trackExternalUsers } = require('./utils/userCounter');
+
+addon.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  next();
+});
 
 addon.use(analytics.middleware);
 addon.use(favicon(path.join(__dirname, '../public/favicon.png')));
-addon.use(express.static(path.join(__dirname, '../public')));
-addon.use(express.static(path.join(__dirname, '../dist')));
+const staticOptions = {
+  setHeaders: function (res, path, stat) {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Headers", "*");
+  }
+};
+
+addon.use(express.static(path.join(__dirname, '../public'), staticOptions));
+addon.use(express.static(path.join(__dirname, '../dist'), staticOptions));
 
 const getCacheHeaders = function (opts) {
   opts = opts || {};
@@ -60,20 +74,20 @@ addon.get("/", function (_, res) {
 addon.get("/request_token", async function (req, res) {
   try {
     const response = await getRequestToken()
-    
+
     // Verifica se houve erro na requisição
     if (response?.success === false) {
       res.status(400).json({ error: response.status_message || 'Failed to get request token' });
       return;
     }
-    
+
     // Retorna apenas o request_token string, não o objeto inteiro
     const requestToken = response?.request_token;
     if (!requestToken) {
       res.status(500).json({ error: 'Request token not found in response' });
       return;
     }
-    
+
     respond(res, requestToken);
   } catch (error) {
     console.error('Error getting request token:', error);
@@ -84,27 +98,27 @@ addon.get("/request_token", async function (req, res) {
 addon.get("/session_id", async function (req, res) {
   try {
     const requestToken = req.query.request_token;
-    
+
     if (!requestToken) {
       res.status(400).json({ error: 'Request token is required' });
       return;
     }
-    
+
     const response = await getSessionId(requestToken);
-    
+
     // Verifica se houve erro na requisição
     if (response?.success === false) {
       res.status(400).json({ error: response.status_message || 'Failed to create session' });
       return;
     }
-    
+
     // Retorna apenas o session_id string, não o objeto inteiro
     const sessionId = response?.session_id;
     if (!sessionId) {
       res.status(500).json({ error: 'Session ID not found in response' });
       return;
     }
-    
+
     respond(res, sessionId);
   } catch (error) {
     console.error('Error getting session ID:', error);
@@ -125,10 +139,10 @@ addon.get("/trakt_auth_url", async function (req, res) {
         protocol = 'https';
       }
     }
-    
+
     const host = req.get('host') || req.headers.host || req.headers['x-forwarded-host'];
     const requestHost = process.env.HOST_NAME || `${protocol}://${host}`;
-    
+
     const { authUrl, state } = await getTraktAuthUrl(requestHost);
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "*");
@@ -143,12 +157,12 @@ addon.get("/trakt_auth_url", async function (req, res) {
 addon.get("/trakt_access_token", async function (req, res) {
   try {
     const code = req.query.code;
-    
+
     if (!code) {
       res.status(400).json({ error: 'Authorization code is required' });
       return;
     }
-    
+
     // Detecta o redirect_uri da requisição (o Trakt envia de volta o mesmo que foi usado)
     // Ou usa o host atual para construir (suporta proxies reversos)
     let protocol = req.protocol;
@@ -161,20 +175,20 @@ addon.get("/trakt_access_token", async function (req, res) {
         protocol = 'https';
       }
     }
-    
+
     const host = req.get('host') || req.headers.host || req.headers['x-forwarded-host'];
     const requestHost = process.env.HOST_NAME || `${protocol}://${host}`;
     // Usa o mesmo redirect_uri que foi usado na autenticação (oauth-callback)
     const redirectUri = `${requestHost}/configure/oauth-callback`;
-    
+
     const response = await getTraktAccessToken(code, redirectUri);
-    
+
     // Verifica se houve erro na requisição
     if (response?.error || response?.success === false) {
       res.status(400).json({ error: response.error || response.status_message || 'Failed to get access token' });
       return;
     }
-    
+
     // Retorna o objeto com access_token, refresh_token, etc.
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "*");
@@ -249,10 +263,10 @@ addon.get("/:catalogChoices?/catalog/:type/:id/:extra?.json", async function (re
           metas = await getTrending(...args, genre, config);
           break;
         case "tmdb.favorites":
-          metas = await getFavorites(...args, genre, sessionId);
+          metas = await getFavorites(...args, genre, config);
           break;
         case "tmdb.watchlist":
-          metas = await getWatchList(...args, genre, sessionId);
+          metas = await getWatchList(...args, genre, config);
           break;
         case "trakt.watchlist":
           const traktAccessToken = config.traktAccessToken;
@@ -274,6 +288,14 @@ addon.get("/:catalogChoices?/catalog/:type/:id/:extra?.json", async function (re
       }
     }
   } catch (e) {
+    // Handle missing TMDB API key error
+    if (e.message === "TMDB_API_KEY_MISSING") {
+      res.status(e.statusCode || 401).json({
+        error: e.userMessage || "TMDB API Key is required",
+        code: "TMDB_API_KEY_MISSING"
+      });
+      return;
+    }
     res.status(404).send((e || {}).message || "Not found");
     return;
   }
@@ -295,23 +317,46 @@ addon.get("/:catalogChoices?/meta/:type/:id.json", async function (req, res) {
   delete config.streaming
 
   if (req.params.id.includes("tmdb:")) {
-    const resp = await cacheWrapMeta(`${language}:${type}:${tmdbId}`, async () => {
-      return await getMeta(type, language, tmdbId, config);
-    });
-    const cacheOpts = {
-      staleRevalidate: 20 * 24 * 60 * 60,
-      staleError: 30 * 24 * 60 * 60,
-    };
-    if (type == "movie") {
-      cacheOpts.cacheMaxAge = 14 * 24 * 60 * 60;
-    } else if (type == "series") {
-      const hasEnded = !!((resp.releaseInfo || "").length > 5);
-      cacheOpts.cacheMaxAge = (hasEnded ? 14 : 1) * 24 * 60 * 60;
+    // Validate that tmdbId is numeric
+    if (!/^\d+$/.test(tmdbId)) {
+      res.status(404).json({ error: "Invalid TMDB ID" });
+      return;
     }
-    respond(res, resp, cacheOpts);
+
+    try {
+      const resp = await cacheWrapMeta(`${language}:${type}:${tmdbId}`, async () => {
+        return await getMeta(type, language, tmdbId, config);
+      });
+      const cacheOpts = {
+        staleRevalidate: 20 * 24 * 60 * 60,
+        staleError: 30 * 24 * 60 * 60,
+      };
+      if (type == "movie") {
+        cacheOpts.cacheMaxAge = 14 * 24 * 60 * 60;
+      } else if (type == "series") {
+        const hasEnded = !!((resp.releaseInfo || "").length > 5);
+        cacheOpts.cacheMaxAge = (hasEnded ? 14 : 1) * 24 * 60 * 60;
+      }
+      respond(res, resp, cacheOpts);
+    } catch (e) {
+      // Handle missing TMDB API key error
+      if (e.message === "TMDB_API_KEY_MISSING") {
+        res.status(e.statusCode || 401).json({
+          error: e.userMessage || "TMDB API Key is required",
+          code: "TMDB_API_KEY_MISSING"
+        });
+        return;
+      }
+      if (e.message && (e.message.includes("404") || e.message.toLowerCase().includes("not found"))) {
+        res.status(404).json({ error: "Content not found on TMDB" });
+      } else {
+        console.error(`Error in meta route for ${type} ${tmdbId}:`, e);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
   }
   if (req.params.id.includes("tt")) {
-    const tmdbId = await getTmdb(type, imdbId);
+    const tmdbId = await getTmdb(type, imdbId, config);
     if (tmdbId) {
       const resp = await cacheWrapMeta(`${language}:${type}:${tmdbId}`, async () => {
         return await getMeta(type, language, tmdbId, config);
@@ -377,5 +422,70 @@ addon.get("/api/image/blur", async function (req, res) {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// User counter endpoints
+addon.post("/api/stats/track-user", async function (req, res) {
+  try {
+    await trackUser(req);
+    const count = await getUserCount();
+    
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+    res.setHeader("Content-Type", "application/json");
+    res.json({ success: true, count });
+  } catch (error) {
+    console.error('Error tracking user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+addon.get("/api/stats/users", async function (req, res) {
+  try {
+    const count = await getAggregatedUserCount();
+    
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "public, max-age=300"); // Cache por 5 minutos
+    
+    res.json({ count });
+  } catch (error) {
+    console.error('Error getting user count:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Endpoint para outras instâncias reportarem seus usuários
+addon.post("/api/stats/report-users", async function (req, res) {
+  try {
+    const { count, instanceId } = req.body;
+    
+    if (!count || !instanceId) {
+      return res.status(400).json({ error: 'count and instanceId are required' });
+    }
+    
+    await trackExternalUsers(parseInt(count), instanceId);
+    
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "*");
+    res.setHeader("Content-Type", "application/json");
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error reporting external users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Middleware para rastrear usuários automaticamente em requisições ao manifest
+addon.use('/manifest.json', async function (req, res, next) {
+  // Rastreia em background sem bloquear a resposta
+  trackUser(req).catch(err => console.error('Background user tracking error:', err));
+  next();
+});
+
+// Inicia o reporte automático para a instância oficial (apenas uma vez quando o servidor inicia)
+const { startAutoReporting } = require('./utils/userCounter');
+// Reporta a cada hora (60 minutos)
+startAutoReporting(60);
 
 module.exports = addon;

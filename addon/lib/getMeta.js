@@ -1,7 +1,6 @@
 require("dotenv").config();
-const { TMDBClient } = require("../utils/tmdbClient");
+const { getTmdbClient } = require("../utils/getTmdbClient");
 const Utils = require("../utils/parseProps");
-const moviedb = new TMDBClient(process.env.TMDB_API);
 const { getEpisodes } = require("./getEpisodes");
 const { getLogo, getTvLogo } = require("./getLogo");
 const { getImdbRating } = require("./getImdbRating");
@@ -120,7 +119,7 @@ const addAgeRatingToGenres = (ageRating, genres, showAgeRatingInGenres = true) =
     return [ageRating, ...genres];
 };
 
-const fetchCollectionData = async (collTMDBId, language, tmdbId) => {
+const fetchCollectionData = async (moviedb, collTMDBId, language, tmdbId) => {
     return await moviedb.collectionInfo({
         id: collTMDBId,
         language
@@ -134,21 +133,28 @@ const fetchCollectionData = async (collTMDBId, language, tmdbId) => {
 };
 
 // Movie specific functions
-const fetchMovieData = async (tmdbId, language) => {
-  const info = await moviedb.movieInfo({
-    id: tmdbId,
-    language,
-    append_to_response: "videos,credits,external_ids, release_dates"
-  });
-
-  if (!info.videos?.results?.length) {
+const fetchMovieData = async (moviedb, tmdbId, language) => {
     try {
-      const fallback = await moviedb.movieVideos({ id: tmdbId, language: "en-US" });
-      info.videos = { results: fallback.results || [] };
-    } catch (err) {}
-  }
+        const info = await moviedb.movieInfo({
+            id: tmdbId,
+            language,
+            append_to_response: "videos,credits,external_ids,release_dates"
+        });
 
-  return info;
+        // Fallback to English videos if none found in requested language
+        if (!info.videos?.results?.length) {
+            try {
+                const fallback = await moviedb.movieVideos({ id: tmdbId, language: "en-US" });
+                info.videos = { results: fallback.results || [] };
+            } catch (err) {}
+        }
+
+        return info;
+    } catch (e) {
+        // Swallow 404s (not found) and return null; rethrow other errors
+        if (e?.response?.status === 404) return null;
+        throw e;
+    }
 };
 
 const buildMovieResponse = async (res, type, language, tmdbId, config = {}) => {
@@ -165,18 +171,19 @@ const buildMovieResponse = async (res, type, language, tmdbId, config = {}) => {
 
     const logoFetcher = rpdbMediaTypes?.logo
         ? Utils.parseMediaImage(type, tmdbId, null, language, rpdbkey, "logo", rpdbMediaTypes)
-        : getLogo(tmdbId, language, res.original_language);
+        : getLogo(tmdbId, language, res.original_language, config);
 
     const logo = await logoFetcher.catch(e => {
         console.warn(`Error fetching logo for movie ${tmdbId}:`, e.message);
         return null;
     });
 
+    const moviedb = getTmdbClient(config);
     const [poster, imdbRatingRaw, collectionRaw] = await Promise.all([
         Utils.parseMediaImage(type, tmdbId, res.poster_path, language, rpdbkey, "poster", rpdbMediaTypes),
         getCachedImdbRating(res.external_ids?.imdb_id, type),
         (res.belongs_to_collection && res.belongs_to_collection.id)
-            ? fetchCollectionData(res.belongs_to_collection.id, language, tmdbId).catch((e) => {
+            ? fetchCollectionData(moviedb, res.belongs_to_collection.id, language, tmdbId).catch((e) => {
                 console.warn(`Error fetching collection data for movie ${tmdbId} and collection ${res.belongs_to_collection.id}:`, e.message);
                 return null;
             })
@@ -241,25 +248,31 @@ const buildMovieResponse = async (res, type, language, tmdbId, config = {}) => {
 };
 
 // TV show specific functions
-const fetchTvData = async (tmdbId, language) => {
-  const info = await moviedb.tvInfo({
-    id: tmdbId,
-    language,
-    append_to_response: "videos,credits,external_ids,content_ratings"
-  });
-
-  if (!info.videos?.results?.length) {
+const fetchTvData = async (moviedb, tmdbId, language) => {
     try {
-      const fallback = await moviedb.tvInfo({ 
-        id: tmdbId, 
-        language: "en-US",
-        append_to_response: "videos" 
-      });
-      info.videos = fallback.videos || { results: [] };
-    } catch (err) {}
-  }
+        const info = await moviedb.tvInfo({
+            id: tmdbId,
+            language,
+            append_to_response: "videos,credits,external_ids,content_ratings"
+        });
 
-  return info;
+        // Fallback to English videos if none found in requested language
+        if (!info.videos?.results?.length) {
+            try {
+                const fallback = await moviedb.tvInfo({ 
+                    id: tmdbId, 
+                    language: "en-US",
+                    append_to_response: "videos" 
+                });
+                info.videos = fallback.videos || { results: [] };
+            } catch (err) {}
+        }
+
+        return info;
+    } catch (e) {
+        if (e?.response?.status === 404) return null;
+        throw e;
+    }
 };
 
 const buildTvResponse = async (res, type, language, tmdbId, config = {}) => {
@@ -279,24 +292,23 @@ const buildTvResponse = async (res, type, language, tmdbId, config = {}) => {
 
     const logoFetcher = rpdbMediaTypes?.logo
         ? Utils.parseMediaImage(type, tmdbId, null, language, rpdbkey, "logo", rpdbMediaTypes)
-        : getTvLogo(res.external_ids?.tvdb_id, res.id, language, res.original_language);
+        : getTvLogo(res.external_ids?.tvdb_id, res.id, language, res.original_language, config);
 
     const logo = await logoFetcher.catch(e => {
         console.warn(`Error fetching logo for series ${tmdbId}:`, e.message);
         return null;
     });
 
+    const moviedb = getTmdbClient(config);
     const [poster, imdbRatingRaw, episodes, collectionRaw] = await Promise.all([
         Utils.parseMediaImage(type, tmdbId, res.poster_path, language, rpdbkey, "poster", rpdbMediaTypes),
         getCachedImdbRating(res.external_ids?.imdb_id, type),
-        getEpisodes(language, tmdbId, res.external_ids?.imdb_id, res.seasons, {
-            hideEpisodeThumbnails
-        }).catch(e => {
+        getEpisodes(language, tmdbId, res.external_ids?.imdb_id, res.seasons, config).catch(e => {
             console.warn(`Error fetching episodes for series ${tmdbId}:`, e.message);
             return [];
         }),
         (res.belongs_to_collection && res.belongs_to_collection.id)
-            ? fetchCollectionData(res.belongs_to_collection.id, language, tmdbId).catch((e) => {
+            ? fetchCollectionData(moviedb, res.belongs_to_collection.id, language, tmdbId).catch((e) => {
                 console.warn(`Error fetching collection data for movie ${tmdbId} and collection ${res.belongs_to_collection.id}:`, e.message);
                 return null;
             })
@@ -310,13 +322,13 @@ const buildTvResponse = async (res, type, language, tmdbId, config = {}) => {
     if (enableAgeRating) {
         resolvedAgeRating = extractAgeRating(res, type, language);
     }
-    
+
     const response = {
         country: Utils.parseCoutry(res.production_countries),
         description: res.overview,
         genre: addAgeRatingToGenres(resolvedAgeRating, parsedGenres, showAgeRatingInGenres),
         imdbRating,
-        imdb_id: res.external_ids.imdb_id,
+        imdb_id: res.external_ids?.imdb_id,
         name: res.name,
         poster,
         released: new Date(res.first_air_date),
@@ -326,15 +338,15 @@ const buildTvResponse = async (res, type, language, tmdbId, config = {}) => {
         writer: Utils.parseCreatedBy(res.created_by),
         year: Utils.parseYear(res.status, res.first_air_date, res.last_air_date),
         background: await Utils.parseMediaImage(type, tmdbId, res.backdrop_path, language, rpdbkey, "backdrop", rpdbMediaTypes),
-        slug: Utils.parseSlug(type, res.name, res.external_ids.imdb_id),
-        id: returnImdbId ? res.external_ids.imdb_id : `tmdb:${tmdbId}`,
+        slug: Utils.parseSlug(type, res.name, res.external_ids?.imdb_id),
+        id: returnImdbId ? res.external_ids?.imdb_id : `tmdb:${tmdbId}`,
         genres: addAgeRatingToGenres(resolvedAgeRating, parsedGenres, showAgeRatingInGenres),
         ageRating: resolvedAgeRating,
         releaseInfo: Utils.parseYear(res.status, res.first_air_date, res.last_air_date),
         videos: episodes || [],
         links: buildLinks(
             imdbRating,
-            res.external_ids.imdb_id,
+            res.external_ids?.imdb_id,
             res.name,
             type,
             res.genres,
@@ -381,17 +393,48 @@ async function getMeta(type, language, tmdbId, config = {}) {
         return Promise.resolve({ meta: cachedData.data });
     }
 
-    try {
-        const meta = await (type === "movie" ?
-            fetchMovieData(tmdbId, language).then(res => buildMovieResponse(res, type, language, tmdbId, config)) :
-            fetchTvData(tmdbId, language).then(res => buildTvResponse(res, type, language, tmdbId, config))
-        );
+    if (tmdbId === "no-content" || tmdbId === "0") {
+        const host = process.env.HOST_NAME ? process.env.HOST_NAME.replace(/\/$/, '') : '';
+        const posterUrl = host + "/no-content.png?v=" + Date.now();
+        return Promise.resolve({
+            meta: {
+                id: "tmdb:no-content",
+                type: type,
+                name: "No Content Available",
+                poster: posterUrl,
+                description: "No content found for the selected filter.",
+                genres: ["No Results"],
+                logo: posterUrl,
+                background: posterUrl
+            }
+        });
+    }
 
+    try {
+        const moviedb = getTmdbClient(config);
+        // First, fetch raw TMDB data with 404 handling
+        const tmdbRes = (type === "movie")
+            ? await fetchMovieData(moviedb, tmdbId, language)
+            : await fetchTvData(moviedb, tmdbId, language);
+
+        if (!tmdbRes) {
+            console.warn(`TMDB ${type} not found: ${tmdbId} (${language})`);
+            // Return empty meta on 404 instead of throwing
+            return { meta: {} };
+        }
+
+        // Build the meta object
+        const meta = (type === "movie")
+            ? await buildMovieResponse(tmdbRes, type, language, tmdbId, config)
+            : await buildTvResponse(tmdbRes, type, language, tmdbId, config);
+
+        // Cache and return
         cache.set(cacheKey, { data: meta, timestamp: Date.now() });
-        return Promise.resolve({ meta });
+        return { meta };
     } catch (error) {
-        console.error(`Error in getMeta: ${error.message}`);
-        throw error;
+        // Log and return empty meta instead of throwing to avoid crashing the process
+        console.error(`Error in getMeta: ${error?.message || error}`);
+        return { meta: {} };
     }
 }
 
